@@ -1,73 +1,81 @@
 name: pytest
 
 on: push
+
 jobs:
   test:
     strategy:
-      fail-fast: false  # don't cancel other matrix jobs when one fails
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04]
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
         environment-type: [conda, bare]
-        suffix: ['']  # placeholder as an alternative to "-min"
+        suffix: ['']
         include:
-        - os: ubuntu-24.04
-          python-version: 3.9
-          environment-type: conda
-          suffix: -min
+          - os: ubuntu-24.04
+            python-version: '3.9'
+            environment-type: conda
+            suffix: -min
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      # We check out only a limited depth and then pull tags to save time
-    - name: Checkout source
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 100
+      # Checkout source with sufficient history
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
 
-    - name: Get tags
-      run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+      # Fetch tags for version information
+      - name: Get tags
+        run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
 
-    - name: Install Conda environment with Micromamba
-      if: matrix.environment-type == 'conda'
-      uses: mamba-org/setup-micromamba@v1
-      with:
-        environment-file: ${{ env.REQUIREMENTS }}
-        cache-downloads: true
-        create-args: >-
-          python=${{ matrix.python-version }}
-        condarc: |
-          channel-priority: flexible
-      env:
-          # build requirement filename.  First replacement is for the python
-          # version, second is to add "-min" if needed
-        REQUIREMENTS: ci/requirements-py${{ matrix.python-version }}${{ 
-          matrix.suffix }}.yml
+      # Install Conda environment
+      - name: Install Conda environment with Micromamba
+        if: matrix.environment-type == 'conda'
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: ${{ env.REQUIREMENTS }}
+          cache-downloads: false
+          cache-environment: false
+          create-args: >-
+            python=${{ matrix.python-version }}
+          condarc: |
+            channel-priority: flexible
+        env:
+          REQUIREMENTS: ci/requirements-py${{ matrix.python-version }}${{ matrix.suffix }}.yml
 
-    - name: List installed package versions (conda)
-      if: matrix.environment-type == 'conda'
-      shell: bash -l {0}    # necessary for conda env to be active
-      run: micromamba list
+      # List Conda dependencies
+      - name: List installed package versions (conda)
+        if: matrix.environment-type == 'conda'
+        shell: bash -l {0}
+        run: micromamba list
 
-    - name: Install bare Python ${{ matrix.python-version }}${{ matrix.suffix }}
-      if: matrix.environment-type == 'bare'
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
+      # Install bare Python
+      - name: Install bare Python ${{ matrix.python-version }}${{ matrix.suffix }}
+        if: matrix.environment-type == 'bare'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install pvlib
-      if: matrix.environment-type == 'conda'
-      shell: bash -l {0}
-      run: python -m pip install --no-deps .
+      # Install pvlib in Conda environment
+      - name: Install pvlib
+        if: matrix.environment-type == 'conda'
+        shell: bash -l {0}
+        run: python -m pip install --no-deps .
 
-    - name: Set up bare environment
-      if: matrix.environment-type == 'bare'
-      run: |
-        pip install .[test]
-        pip freeze
+      # Install pvlib and test dependencies in bare environment
+      - name: Set up bare environment
+        if: matrix.environment-type == 'bare'
+        run: |
+          pip install .[test]
+          pip freeze
 
-    - name: Run tests
-      shell: bash -l {0}    # necessary for conda env to be active
-      run: |
-        # ignore iotools; those tests are run in a separate workflow
-        pytest tests --cov=./ --cov-report=xml --ignore=tests/iotools
+      # Run all original tests and coverage verification
+      - name: Run tests
+        shell: bash -l {0}
+        run: |
+          python --version
+          python -m pytest --version
+          python -m pip check
+          python -m pytest tests --cov=./ --cov-report=xml --ignore=tests/iotools
